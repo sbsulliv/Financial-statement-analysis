@@ -1,0 +1,41 @@
+
+
+# import modules
+import requests
+import pandas as pd
+
+# create request header
+headers = {'User-Agent': "email@address.com"}
+
+# get all companies data
+companyTickers = requests.get(
+    "https://www.sec.gov/files/company_tickers.json",
+    headers=headers
+    )
+
+# review response / keys
+print(companyTickers.json().keys())
+
+# format response to dictionary and get first key/value
+firstEntry = companyTickers.json()['0']
+
+# parse CIK // without leading zeros
+directCik = companyTickers.json()['0']['cik_str']
+
+# dictionary to dataframe
+companyData = pd.DataFrame.from_dict(companyTickers.json(),
+                                     orient='index')
+
+# add leading zeros to CIK
+companyData['cik_str'] = companyData['cik_str'].astype(
+                           str).str.zfill(10)
+
+# review data
+print(companyData[:1])
+
+cik = companyData[0:1].cik_str[0]
+
+# get company specific filing metadata
+filingMetadata = requests.get(
+    f'https://data.sec.gov/submissions/CIK{cik}.json',
+    headers=headers
