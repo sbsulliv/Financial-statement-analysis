@@ -1,126 +1,82 @@
-
-# import modules
 import requests
+import json
 import pandas as pd
+from datetime import datetime
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
+# Add any additional libraries you might need
 
-# create request header
-headers = {'User-Agent': "email@address.com"}
 
-# get all companies data
-companyTickers = requests.get(
-    "https://www.sec.gov/files/company_tickers.json",
-    headers=headers
-    )
+# Fetch data from SEC-API
+def fetch_sec_data(ticker, api_key):
+    url = f"https://api.sec-api.io?token={api_key}&ticker={ticker}"
+    response = requests.get(url)
+    if response.status_code == 200:
+        return json.loads(response.content)
+    else:
+        return None
 
-# review response / keys
-print(companyTickers.json().keys())
+# Example usage
+sec_data = fetch_sec_data("AAPL", "your_api_key_here")
 
-# format response to dictionary and get first key/value
-firstEntry = companyTickers.json()['0']
+# Data Processing 
+def preprocess_sec_data(sec_data):
+    # Convert the data into a pandas DataFrame
+    # Clean, transform, and prepare the data for analysis
+    # This might involve normalizing data, handling missing values, etc.
+    pass  # Implement details based on the data format and needs
 
-# parse CIK // without leading zeros
-directCik = companyTickers.json()['0']['cik_str']
+# Example usage
+processed_data = preprocess_sec_data(sec_data)
 
-# dictionary to dataframe
-companyData = pd.DataFrame.from_dict(companyTickers.json(),
-                                     orient='index')
+# Financial Analysis (Ratios, Metrics)
+def calculate_financial_ratios(df):
+    # Implement function to calculate financial ratios
+    # Examples: P/E ratio, debt-to-equity ratio, etc.
+    pass
 
-# add leading zeros to CIK
-companyData['cik_str'] = companyData['cik_str'].astype(
-                           str).str.zfill(10)
+# Example usage
+financial_ratios = calculate_financial_ratios(processed_data)
 
-# review data
-print(companyData[:1])
+# Predictive Modeling Using linear regression
+def train_predictive_model(df):
+    # Select features and target variable
+    # Split data into training and testing sets
+    # Initialize and train your model (e.g., Linear Regression, ARIMA, LSTM)
+    # Predict and evaluate the model
+    pass
 
-cik = companyData[0:1].cik_str[0]
+# Example usage
+model = train_predictive_model(processed_data)
 
-# get company specific filing metadata
-filingMetadata = requests.get(
-    f'https://data.sec.gov/submissions/CIK{cik}.json',
-    headers=headers
-    )
+# Visualization of Data and Predictions
+def plot_data(df):
+    # Implement function to plot relevant data
+    # Example: stock prices over time, financial metrics, etc.
+    pass
 
-# review json 
-print(filingMetadata.json().keys())
-filingMetadata.json()['filings']
-filingMetadata.json()['filings'].keys()
-filingMetadata.json()['filings']['recent']
-filingMetadata.json()['filings']['recent'].keys()
+# Example usage
+plot_data(processed_data)
 
-# dictionary to dataframe
-allForms = pd.DataFrame.from_dict(
-             filingMetadata.json()['filings']['recent']
-             )
+# Integrating with Web Application
+# Flask example
+from flask import Flask, render_template, request
+app = Flask(__name__)
 
-# review columns
-allForms.columns
-allForms[['accessionNumber', 'reportDate', 'form']].head(50)
+@app.route('/')
+def index():
+    # Implement your main webpage
+    pass
 
-# 10-Q metadata
-allForms.iloc[11]
+@app.route('/predict', methods=['POST'])
+def predict():
+    # Implement functionality to accept user input and return predictions
+    pass
 
-# get company facts data
-companyFacts = requests.get(
-    f'https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json',
-    headers=headers
-    )
+if __name__ == "__main__":
+    app.run(debug=True)
 
-#review data
-companyFacts.json().keys()
-companyFacts.json()['facts']
-companyFacts.json()['facts'].keys()
 
-# filing metadata
-companyFacts.json()['facts']['dei'][
-    'EntityCommonStockSharesOutstanding']
-companyFacts.json()['facts']['dei'][
-    'EntityCommonStockSharesOutstanding'].keys()
-companyFacts.json()['facts']['dei'][
-    'EntityCommonStockSharesOutstanding']['units']
-companyFacts.json()['facts']['dei'][
-    'EntityCommonStockSharesOutstanding']['units']['shares']
-companyFacts.json()['facts']['dei'][
-    'EntityCommonStockSharesOutstanding']['units']['shares'][0]
 
-# concept data // financial statement line items
-companyFacts.json()['facts']['us-gaap']
-companyFacts.json()['facts']['us-gaap'].keys()
 
-# different amounts of data available per concept
-companyFacts.json()['facts']['us-gaap']['AccountsPayable']
-companyFacts.json()['facts']['us-gaap']['Revenues']
-companyFacts.json()['facts']['us-gaap']['Assets']
-
-# get company concept data
-companyConcept = requests.get(
-    (
-    f'https://data.sec.gov/api/xbrl/companyconcept/CIK{cik}'
-     f'/us-gaap/Assets.json'
-    ),
-    headers=headers
-    )
-
-# review data
-companyConcept.json().keys()
-companyConcept.json()['units']
-companyConcept.json()['units'].keys()
-companyConcept.json()['units']['USD']
-companyConcept.json()['units']['USD'][0]
-
-# parse assets from single filing
-companyConcept.json()['units']['USD'][0]['val']
-
-# get all filings data 
-assetsData = pd.DataFrame.from_dict((
-               companyConcept.json()['units']['USD']))
-
-# review data
-assetsData.columns
-assetsData.form
-
-# get assets from 10Q forms and reset index
-assets10Q = assetsData[assetsData.form == '10-Q']
-assets10Q = assets10Q.reset_index(drop=True)
-
-# plot 
-assets10Q.plot(x='end', y='val')
