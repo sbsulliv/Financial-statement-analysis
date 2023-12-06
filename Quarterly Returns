@@ -1,0 +1,112 @@
+import requests
+import json
+import pandas as pd
+from sec_api import QueryApi
+from datetime import datetime
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+
+# API key
+api_key = 'api_key_here'
+xbrl_converter_api_endpoint = 'https://api.sec-api.io/xbrl-to-json'
+
+# Function to get XBRL-JSON for a given accession number
+def get_xbrl_json(accession_no):
+    request_url = xbrl_converter_api_endpoint + "?accession-no=" + accession_no + "&token=" + api_key
+    response = requests.get(request_url)
+    xbrl_json = json.loads(response.text)
+    return xbrl_json
+
+def get_income_statement(xbrl_json_data):
+    income_statement_store = {}
+
+    # Iterate over each US GAAP item in the income statement
+    for usGaapItem in xbrl_json_data['StatementsOfIncome']:
+        values = []
+        indices = []
+
+        for fact in xbrl_json_data['StatementsOfIncome'][usGaapItem]:
+            # Only consider items without a segment (not required for your analysis)
+            if 'segment' not in fact:
+                index = fact['period']['startDate']  # Use the start date as the index
+                # Ensure no index duplicates are created
+                if index not in indices:
+                    values.append(fact['value'])
+                    indices.append(index)
+
+        income_statement_store[usGaapItem] = pd.Series(values, index=indices)
+
+    income_statement = pd.DataFrame(income_statement_store)
+    # Switch columns and rows so that US GAAP items are rows, and each column header represents a date range
+    return income_statement.T
+
+# Get all 10-Q and 10-K filings for Apple
+query_api = QueryApi(api_key=api_key)
+query = {
+    "query": {
+        "query_string": {
+            "query": "(formType:\"10-Q\" OR formType:\"10-K\") AND ticker:AAPL"
+        }
+    },
+    "from": "0",
+    "size": "20",  # Increase the size to get enough filings to go back to 2017
+    "sort": [{ "filedAt": { "order": "desc" } }]
+}
+
+query_result = query_api.get_filings(query)
+
+# Initialize an empty DataFrame to store all revenue data points
+all_revenue_data = pd.DataFrame()
+
+# Process all fetched filings to accumulate revenue data points
+for filing in query_result['filings']:
+    accession_no = filing['accessionNo']
+    xbrl_json_data = get_xbrl_json(accession_no)
+    income_statement = get_income_statement(xbrl_json_data)
+    
+    # Extract the revenue data for the current filing
+    if 'RevenueFromContractWithCustomerExcludingAssessedTax' in income_statement.index:
+        revenue_data = income_statement.loc['RevenueFromContractWithCustomerExcludingAssessedTax']
+    else:
+        continue  # If the specific line item isn't found, skip to the next filing
+
+    # Ensure that 'Revenue' is a float before appending it to the DataFrame
+    revenue_data = revenue_data.astype(float)  # Convert all revenue data to float
+    
+    # Convert the Series to a DataFrame and set the date as the index
+    revenue_df = pd.DataFrame(revenue_data)
+    revenue_df.columns = ['Revenue']  # Name the revenue column
+    revenue_df['Date'] = revenue_df.index  # Ensure there is a Date column
+    revenue_df['Date'] = pd.to_datetime(revenue_df['Date'], errors='coerce')  # Convert the Date column to datetime
+    revenue_df.set_index('Date', inplace=True)  # Set the Date column as the index
+    
+    # Concatenate the revenue data to the all_revenue_data DataFrame
+    all_revenue_data = pd.concat([all_revenue_data, revenue_df])
+
+# After accumulating all revenue data points ...
+
+# Ensure no duplicates and sort by the index (Date)
+all_revenue_data = all_revenue_data[~all_revenue_data.index.duplicated(keep='first')]
+all_revenue_data.sort_index(inplace=True)
+
+# Convert the 'Revenue' column to numeric, coercing errors to NaN (which will be skipped in the plot)
+all_revenue_data['Revenue'] = pd.to_numeric(all_revenue_data['Revenue'], errors='coerce')
+
+# Scale the revenue values to billions for readability
+all_revenue_data['Revenue'] = all_revenue_data['Revenue'] / 1e9  # Converts revenue figures to billions
+
+# Drop any rows that couldn't be converted to numeric
+all_revenue_data.dropna(subset=['Revenue'], inplace=True)
+
+# Plot the data
+plt.figure(figsize=(12, 6))
+plt.plot(all_revenue_data.index, all_revenue_data['Revenue'], marker='o', linestyle='-')
+plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+plt.gca().xaxis.set_major_locator(mdates.MonthLocator(interval=3))  # Adjusted for quarterly data
+plt.title("Apple Quarterly Revenue")
+plt.xlabel("Date")
+plt.ylabel("Revenue (in billions)")
+plt.xticks(rotation=45)
+plt.grid(True)
+plt.tight_layout()  # Adjusts plot parameters for better layout
+plt.show()
