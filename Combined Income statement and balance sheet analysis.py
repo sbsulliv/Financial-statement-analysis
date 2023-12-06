@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
 # Constants
-api_key = '24e131521ec416575de4f3b9221711bde8dab9ac6e00afc189cad610949d2754'
+api_key = 'api_key_here'
 xbrl_converter_api_endpoint = 'https://api.sec-api.io/xbrl-to-json'
 
 # Function to get XBRL-JSON for a given accession number with retry logic
