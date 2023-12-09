@@ -1,0 +1,94 @@
+# import libraries
+import requests
+import json
+import pandas as pd
+from sec_api import QueryApi
+from datetime import datetime
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import tkinter as tk
+from tkinter import ttk
+
+
+#API key and the endpoint URL for XBRL to JSON conversion
+api_key = 'API KEY HERE'
+xbrl_converter_api_endpoint = 'https://api.sec-api.io/xbrl-to-json'
+
+# Function to fetch XBRL JSON data for a given accession number
+def get_xbrl_json(accession_no):
+    request_url = xbrl_converter_api_endpoint + "?accession-no=" + accession_no + "&token=" + api_key
+    response = requests.get(request_url)
+    return json.loads(response.text)
+
+# Function to extract the income statement from XBRL JSON data
+def get_income_statement(xbrl_json_data):
+    income_statement_store = {}
+    for usGaapItem in xbrl_json_data['StatementsOfIncome']:
+        values, indices = [], []
+        for fact in xbrl_json_data['StatementsOfIncome'][usGaapItem]:
+            if 'segment' not in fact:
+                index = fact['period']['startDate']
+                if index not in indices:
+                    values.append(fact['value'])
+                    indices.append(index)
+        income_statement_store[usGaapItem] = pd.Series(values, index=indices)
+    return pd.DataFrame(income_statement_store).T
+
+# Query API for 10-Q and 10-K filings for Apple
+query_api = QueryApi(api_key=api_key)
+query = {
+    "query": { "query_string": { "query": "(formType:\"10-Q\" OR formType:\"10-K\") AND ticker:AAPL" }},
+    "from": "0",
+    "size": "20",
+    "sort": [{ "filedAt": { "order": "desc" } }]
+}
+
+query_result = query_api.get_filings(query)
+
+all_revenue_data = pd.DataFrame()
+
+def fetch_revenue_data(ticker):
+    query = {
+        "query": { "query_string": { "query": f"(formType:\"10-Q\" OR formType:\"10-K\") AND ticker:{ticker}" }},
+        "from": "0",
+        "size": "20",
+        "sort": [{ "filedAt": { "order": "desc" } }]
+    }
+    query_result = query_api.get_filings(query)
+    all_revenue_data = pd.DataFrame()
+
+    for filing in query_result['filings']:
+        accession_no = filing['accessionNo']
+        xbrl_json_data = get_xbrl_json(accession_no)
+        income_statement = get_income_statement(xbrl_json_data)
+
+        if 'RevenueFromContractWithCustomerExcludingAssessedTax' in income_statement.index:
+            revenue_data = income_statement.loc['RevenueFromContractWithCustomerExcludingAssessedTax'].astype(float)
+            revenue_df = pd.DataFrame(revenue_data)
+            revenue_df.columns = ['Revenue']
+            revenue_df['Date'] = pd.to_datetime(revenue_df.index, errors='coerce')
+            revenue_df.set_index('Date', inplace=True)
+            all_revenue_data = pd.concat([all_revenue_data, revenue_df])
+
+    all_revenue_data = all_revenue_data[~all_revenue_data.index.duplicated(keep='first')]
+    all_revenue_data.sort_index(inplace=True)
+    all_revenue_data['Revenue'] = pd.to_numeric(all_revenue_data['Revenue'], errors='coerce') / 1e9
+    all_revenue_data.dropna(subset=['Revenue'], inplace=True)
+    return all_revenue_data
+
+def plot_revenue_data(all_revenue_data):
+    fig, ax = plt.subplots(figsize=(12, 6))
+    ax.plot(all_revenue_data.index, all_revenue_data['Revenue'], marker='o', linestyle='-')
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=3))
+    ax.set_title("Quarterly Revenue")
+    ax.set_xlabel("Date")
+    ax.set_ylabel("Revenue (in billions)")
+    plt.xticks(rotation=45)
+    ax.grid(True)
+
+    return fig
+
+
+
